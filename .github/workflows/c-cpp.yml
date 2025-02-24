@@ -1,0 +1,110 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+
+const int ledPins[] = {2, 3, 4, 5, 6, 7, 8}; // 7 LED
+const int ledCount = 7;
+const int buzzerPin = 9;
+const int trigPin = 10;
+const int echoPin = 11;
+const int vibrationPin = 12; // SW420 หรือ SW200D
+
+bool alarmActive = false;
+unsigned long alarmStartTime = 0;
+
+void setup() {
+  Serial.begin(9600);
+  lcd.init();
+  lcd.backlight();
+
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(buzzerPin, OUTPUT);
+  pinMode(vibrationPin, INPUT_PULLUP); // ใช้ Pull-up 10KΩ
+
+  for (int i = 0; i < ledCount; i++) {
+    pinMode(ledPins[i], OUTPUT);
+  }
+
+  lcd.clear();
+  lcd.print("System Ready");
+  delay(1000);
+}
+
+void loop() {
+  int distance = readUltrasonic();
+  int vibration = digitalRead(vibrationPin);
+
+  Serial.print("Distance: ");
+  Serial.print(distance);
+  Serial.print(" cm, Vibration: ");
+  Serial.println(vibration);
+
+  if (distance < 5 && vibration == HIGH) {  
+    if (!alarmActive) {
+      activateAlarm();
+    }
+  }
+
+  if (alarmActive && millis() - alarmStartTime >= 10000) {
+    stopAlarm();
+  }
+
+  delay(300);
+}
+
+// อ่านค่าระยะทางจาก Ultrasonic
+int readUltrasonic() {
+  digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 30000); // Timeout 30ms ป้องกันค้าง
+  int distance = duration * 0.034 / 2;
+  return (distance > 200) ? 200 : distance; // จำกัดค่าระยะทางไม่ให้ผิดพลาด
+}
+
+// เริ่มการแจ้งเตือน (10 วินาที)
+void activateAlarm() {
+  alarmActive = true;
+  alarmStartTime = millis();
+  
+  lcd.clear();
+  lcd.print("!!! LANDSLIDE !!!");
+
+  while (millis() - alarmStartTime < 10000) { // แจ้งเตือน 10 วิ
+    for (int i = 0; i < ledCount; i++) {
+      digitalWrite(ledPins[i], HIGH);
+    }
+
+    tone(buzzerPin, 1000);
+    delay(100);
+    noTone(buzzerPin);
+    delay(100);
+
+    for (int i = 0; i < ledCount; i++) {
+      digitalWrite(ledPins[i], LOW);
+    }
+
+    delay(50);
+  }
+}
+
+// หยุดการแจ้งเตือนทันที
+void stopAlarm() {
+  if (alarmActive) {
+    for (int i = 0; i < ledCount; i++) {
+      digitalWrite(ledPins[i], LOW);
+    }
+    noTone(buzzerPin);
+    lcd.clear();
+    lcd.print("System Ready");
+    alarmActive = false;
+
+    // Reset Sensor หลังหยุดการทำงาน
+    delay(500);
+    digitalRead(vibrationPin);  // อ่านค่าใหม่ ป้องกัน False Trigger
+  }
+}
